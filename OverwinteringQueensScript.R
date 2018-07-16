@@ -179,21 +179,29 @@ CT_Threash <- function(data=data){
 ################################### PROGRAM BODY ##############################################
 ###############################################################################################
 
-# 
+# running functions to clean data set:
 OverwinteringQueens_Results <- PrelimClean(OverwinteringQueens_Results)
 OverwinteringQueens_Results<- VirusNorm(number_bees = 1, OverwinteringQueens_Results)
 OverwinteringQueens_Results<- actinNormal(OverwinteringQueens_Results)
 OverwinteringQueens_Results<- CT_Threash(OverwinteringQueens_Results)
 
-
+# split data set by virus
 OWQ_split <- split(OverwinteringQueens_Results, OverwinteringQueens_Results$Target.Name)
 
+# create BQCV data set
 OWQ_BQCV <- OWQ_split$BQCV
 
+# create DWV data set
 OWQ_DWV <- OWQ_split$DWV
 
+############################################################################################
+# PRELIM ANALYSIS:
+
+#Nosema load by treatment plot
 boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment)
+#Nosema load by treatment plot
 summary(aov(OWQ_DWV$Nosema~OWQ_DWV$Treatment))
+#Nosema load by treatment plot
 kruskal.test(OWQ_DWV$Nosema~as.factor(OWQ_DWV$Treatment))
 
 boxplot(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment)
