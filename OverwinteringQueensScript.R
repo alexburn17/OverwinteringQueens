@@ -194,7 +194,7 @@ OWQ_BQCV <- OWQ_split$BQCV
 # create DWV data set
 OWQ_DWV <- OWQ_split$DWV
 
-############################################################################################
+##############################################################################
 # PRELIM ANALYSIS:
 
 #Nosema load by treatment plot
