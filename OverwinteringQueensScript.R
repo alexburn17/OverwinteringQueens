@@ -199,19 +199,25 @@ OWQ_DWV <- OWQ_split$DWV
 
 #Nosema load by treatment plot
 boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment)
-#Nosema load by treatment plot
+#Nosema load by treatment ANOVA
 summary(aov(OWQ_DWV$Nosema~OWQ_DWV$Treatment))
-#Nosema load by treatment plot
+#Nosema load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
 kruskal.test(OWQ_DWV$Nosema~as.factor(OWQ_DWV$Treatment))
 
+#DWV load by treatment plot
 boxplot(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment)
+#DWV load by treatment ANOVA
 summary(aov(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment))
+#DWV load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
 kruskal.test(OWQ_DWV$NormGenomeCopy~as.factor(OWQ_DWV$Treatment))
 
+# BQCV load by treatment plot
 boxplot(log(OWQ_BQCV$NormGenomeCopy)~OWQ_BQCV$Treatment)
+# BQCV load by treatment ANOVA
 summary(aov(OWQ_BQCV$NormGenomeCopy~OWQ_BQCV$Treatment))
+# BQCV load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
 kruskal.test(OWQ_BQCV$NormGenomeCopy~as.factor(OWQ_BQCV$Treatment))
-
+s
 
 
 
