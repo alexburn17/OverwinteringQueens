@@ -23,13 +23,14 @@ library("lme4")
 library("car")
 
 # Set Working Directory: 
- setwd("~/Desktop/OverwinteringQueens")
+# setwd("~/Desktop/OverwinteringQueens")
 
 # read in data:
 Bee_Data <- read.table("Bee_Data.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+
 OverwinteringQueens_Results <- read.table("OverwinteringQueens_Results.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE)
 
-
+# merge data sets
 OverwinteringQueens_Results <- merge(Bee_Data, OverwinteringQueens_Results, by=c("Sample.Name"), all.y=TRUE )
 
 ###########################################################################################
@@ -178,7 +179,7 @@ CT_Threash <- function(data=data){
 ################################### PROGRAM BODY ##############################################
 ###############################################################################################
 
-
+# 
 OverwinteringQueens_Results <- PrelimClean(OverwinteringQueens_Results)
 OverwinteringQueens_Results<- VirusNorm(number_bees = 1, OverwinteringQueens_Results)
 OverwinteringQueens_Results<- actinNormal(OverwinteringQueens_Results)
