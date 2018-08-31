@@ -199,26 +199,22 @@ OWQ_DWV <- OWQ_split$DWV
 
 #Nosema load by treatment plot
 boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment)
-#Nosema load by treatment ANOVA
+#Nosema load by treatment plot
 summary(aov(OWQ_DWV$Nosema~OWQ_DWV$Treatment))
-#Nosema load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
+#Nosema load by treatment plot
 kruskal.test(OWQ_DWV$Nosema~as.factor(OWQ_DWV$Treatment))
 
-#DWV load by treatment plot
 boxplot(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment)
-#DWV load by treatment ANOVA
 summary(aov(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment))
-#DWV load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
 kruskal.test(OWQ_DWV$NormGenomeCopy~as.factor(OWQ_DWV$Treatment))
 
-# BQCV load by treatment plot
 boxplot(log(OWQ_BQCV$NormGenomeCopy)~OWQ_BQCV$Treatment)
-# BQCV load by treatment ANOVA
 summary(aov(OWQ_BQCV$NormGenomeCopy~OWQ_BQCV$Treatment))
-# BQCV load by treatment NON PARAMETRIC (kruskal.wallace) - due to small non-normal sample size
 kruskal.test(OWQ_BQCV$NormGenomeCopy~as.factor(OWQ_BQCV$Treatment))
-s
 
+options(na.action="na.exclude") 
+plot(x=OWQ_BQCV$Nosema, y=OWQ_BQCV$NormGenomeCopy, main="Nosema and BQCV")
+abline(OWQ_BQCV$Nosema~OWQ_BQCV$NormGenomeCopy), col="red")
 
 
 
