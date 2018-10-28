@@ -47,7 +47,7 @@ OverwinteringQueens_Results <- merge(Bee_Data, OverwinteringQueens_Results, by=c
 PrelimClean <- function(data=data){
   
   # take only columns that we want:
-  data <- select(data, Sample.Name, Target.Name, Cq.Mean, Cq.Standard.Deviation, Tm1, Quantity.Mean, Treatment, Nosema, dil.factor)
+  data <- dplyr::select(data, Sample.Name, Target.Name, Cq.Mean, Quantity.Mean, Treatment, Nosema, dil.factor)
   
   # remove duplicate rows
   data<-data[!duplicated(data),]
@@ -188,14 +188,30 @@ OverwinteringQueens_Results<- CT_Threash(OverwinteringQueens_Results)
 # split data set by virus
 OWQ_split <- split(OverwinteringQueens_Results, OverwinteringQueens_Results$Target.Name)
 
+write.csv(OverwinteringQueens_Results, "overwintering.csv")
+
+
+
+
+
+
+
+
+
+
+
+
+
+##############################################################################
+# PRELIM ANALYSIS:
+
+
 # create BQCV data set
 OWQ_BQCV <- OWQ_split$BQCV
 
 # create DWV data set
 OWQ_DWV <- OWQ_split$DWV
 
-##############################################################################
-# PRELIM ANALYSIS:
 
 #Nosema load by treatment plot
 boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment)
