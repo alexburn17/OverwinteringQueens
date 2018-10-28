@@ -185,12 +185,9 @@ OverwinteringQueens_Results<- VirusNorm(number_bees = 1, OverwinteringQueens_Res
 OverwinteringQueens_Results<- actinNormal(OverwinteringQueens_Results)
 OverwinteringQueens_Results<- CT_Threash(OverwinteringQueens_Results)
 
-# split data set by virus
-OWQ_split <- split(OverwinteringQueens_Results, OverwinteringQueens_Results$Target.Name)
-
-write.csv(OverwinteringQueens_Results, "overwintering.csv")
 
 
+#write.csv(OverwinteringQueens_Results, "overwintering.csv")
 
 
 
@@ -204,6 +201,17 @@ write.csv(OverwinteringQueens_Results, "overwintering.csv")
 
 ##############################################################################
 # PRELIM ANALYSIS:
+
+
+# read in data:
+dat <- read.table("overwintering.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+
+dat$Binary <- ifelse(dat$NormGenomeCopy>0, 1, 0)
+
+
+# split data set by virus
+OWQ_split <- split(dat, dat$Target.Name)
+
 
 
 # create BQCV data set
@@ -220,7 +228,7 @@ summary(aov(OWQ_DWV$Nosema~OWQ_DWV$Treatment))
 #Nosema load by treatment plot
 kruskal.test(OWQ_DWV$Nosema~as.factor(OWQ_DWV$Treatment))
 
-boxplot(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment)
+boxplot(log10(OWQ_DWV$NormGenomeCopy)~OWQ_DWV$Treatment)
 summary(aov(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment))
 kruskal.test(OWQ_DWV$NormGenomeCopy~as.factor(OWQ_DWV$Treatment))
 
@@ -228,11 +236,8 @@ boxplot(log(OWQ_BQCV$NormGenomeCopy)~OWQ_BQCV$Treatment)
 summary(aov(OWQ_BQCV$NormGenomeCopy~OWQ_BQCV$Treatment))
 kruskal.test(OWQ_BQCV$NormGenomeCopy~as.factor(OWQ_BQCV$Treatment))
 
-options(na.action="na.exclude") 
-plot(x=OWQ_BQCV$Nosema, y=OWQ_BQCV$NormGenomeCopy, main="Nosema and BQCV")
-abline(OWQ_BQCV$Nosema~OWQ_BQCV$NormGenomeCopy), col="red")
 
-
+fisher.test(OWQ_BQCV$Binary, OWQ_BQCV$Treatment)
 
 
 
