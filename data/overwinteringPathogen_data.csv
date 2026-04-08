@@ -1,4 +1,4 @@
-Sample.Name,Treatment,load,pathogen
+ID,Treatment,load,pathogen
 1,Fall,0,DWV
 10,Fall,0,DWV
 12,Fall,0,DWV
