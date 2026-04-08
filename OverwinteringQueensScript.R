@@ -23,7 +23,7 @@ library("lme4")
 library("car")
 
 # Set Working Directory: 
-# setwd("~/Desktop/OverwinteringQueens")
+setwd("~/Desktop/GitHub_air_05042022/PA_Burnham/OverwinteringQueens")
 
 # read in data:
 Bee_Data <- read.table("Bee_Data.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
@@ -205,24 +205,116 @@ OverwinteringQueens_Results<- CT_Threash(OverwinteringQueens_Results)
 
 # read in data:
 dat <- read.table("overwintering.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+beeDist <- read.table("beeDist.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+beeWeight <- read.table("beeWeight.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+multPlot <- read.table("overwinteringMultiPlot.csv", header=TRUE, sep = ",", stringsAsFactors = FALSE) 
+
+multPlot$Binary <- ifelse(multPlot$load>0, 1, 0)
+multPlot$logLoad <- log10(multPlot$load+1)
+
+multplotNo0 <- multPlot[!multPlot$logLoad==0,]
+multplotNo0 <- multplotNo0[!is.na(multplotNo0$logLoad),]
+
 
 dat$Binary <- ifelse(dat$NormGenomeCopy>0, 1, 0)
+dat$logVirus <- log10(dat$NormGenomeCopy+1)
 
+datNo0 <- dat[!dat$logVirus==0,]
 
 # split data set by virus
-OWQ_split <- split(dat, dat$Target.Name)
+dat_split <- split(dat, dat$Target.Name)
+datno0_split <- split(datNo0, datNo0$Target.Name)
+
+
+# BQCV Stats
+
+chisq.test(dat_split$BQCV$Treatment, dat_split$BQCV$Binary)
+t.test(log10(datno0_split$BQCV$NormGenomeCopy+1)~datno0_split$BQCV$Treatment)
+
+
+# Nosema Stats
+multplotSplit <- split(multPlot, multPlot$pathogen)
+
+
+chisq.test(multplotSplit$DWV$Binary, multplotSplit$DWV$Treatment)
+t.test(log10(datno0_split$BQCV$Nosema +1)~datno0_split$BQCV$Treatment)
+
+
+# depth under the soil distribution 
+ggplot(data=beeDist, aes(x=depth_cm)) +
+  geom_histogram( binwidth=2, fill="steelblue", color="#e9ecef", alpha=0.9) +
+  labs(y="Frequency", x="Depth Under the Soil (cm)") +
+  theme_minimal(base_size = 17) 
 
 
 
-# create BQCV data set
-OWQ_BQCV <- OWQ_split$BQCV
+ggplot(beeWeight, aes(x = Group, y = Bee_Mass_Est_g., fill=Group)) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge(jitter.width = 0.1), alpha=1)+
+  labs(y="Bee Mass (g)", x="Season") +
+  theme_minimal(base_size = 17) +
+  scale_fill_manual(values = c("goldenrod", "chartreuse4"))
 
-# create DWV data set
-OWQ_DWV <- OWQ_split$DWV
+
+
+
+
+
+dat <- aov(data=beeWeight, Bee_Mass_Est_g.~Group)
+summary(dat)
+kruskal.test(beeWeight$Bee_Mass_Est_g.~beeWeight$Group)
+
+
+
+library(MASS)
+library(scales)
+
+ggplot(multplotNo0, aes(x = pathogen, y = load, fill=Treatment)) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge(jitter.width = 0.1), alpha=1)+
+  labs(y="Pathogen Load log10(per/bee)", x="Pathogen") +
+  theme_minimal(base_size = 17) +
+  scale_fill_manual(values = c("goldenrod", "chartreuse4"))+
+  theme(legend.position = 'top') +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))) 
+
+
+#Checking out by plant species
+data <- ddply(multPlot, c("Treatment", "pathogen"), summarise, 
+              n = length(Binary),
+              a = sum(Binary, na.rm = T)+1,
+              b = n - a + 1,
+              lower = qbeta(.025, shape1 = a, shape2 = b),
+              upper = qbeta(.975, shape1 = a, shape2 = b),
+              mean = mean(Binary, na.rm=TRUE))
+
+
+
+
+ggplot(data, aes(x=pathogen, y=mean, group=Treatment, fill=Treatment)) +
+  geom_point(stat="identity", position=position_dodge(width = .9), shape=23, size=13, color = "black") + 
+  labs(y="Pathogen Prevalence", x="Pathogen") + 
+  theme_minimal(base_size = 17) + 
+  theme(legend.position="top") +
+  scale_fill_manual(values=c("goldenrod", "chartreuse4")) +
+  geom_errorbar(aes(ymin = lower, ymax = upper, width = 0.5), 
+                position=position_dodge(width = .9)) +
+  coord_cartesian(ylim=c(0,1.3))
+
+  
+
+data
+
+
+
+
 
 
 #Nosema load by treatment plot
-boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment)
+boxplot(OWQ_DWV$Nosema~OWQ_DWV$Treatment,
+        ylab="Nosema Load", 
+        xlab="Season")
 #Nosema load by treatment plot
 summary(aov(OWQ_DWV$Nosema~OWQ_DWV$Treatment))
 #Nosema load by treatment plot
@@ -232,7 +324,12 @@ boxplot(log10(OWQ_DWV$NormGenomeCopy)~OWQ_DWV$Treatment)
 summary(aov(OWQ_DWV$NormGenomeCopy~OWQ_DWV$Treatment))
 kruskal.test(OWQ_DWV$NormGenomeCopy~as.factor(OWQ_DWV$Treatment))
 
-boxplot(log(OWQ_BQCV$NormGenomeCopy)~OWQ_BQCV$Treatment)
+
+boxplot(log10(OWQ_BQCV$NormGenomeCopy)~OWQ_BQCV$Treatment, 
+        ylab="BQCV Load log10(genome copies/bee)", 
+        xlab="Season")
+
+
 summary(aov(OWQ_BQCV$NormGenomeCopy~OWQ_BQCV$Treatment))
 kruskal.test(OWQ_BQCV$NormGenomeCopy~as.factor(OWQ_BQCV$Treatment))
 
