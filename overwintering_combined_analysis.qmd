@@ -1,0 +1,648 @@
+---
+title: "Overwintering queens: combined statistical analysis notebook"
+format: pdf
+execute:
+  echo: true
+  warning: false
+  message: false
+editor: visual
+---
+
+## Overview
+
+This Quarto notebook recreates the analyses from the prior two analysis runs using only the two uploaded data files:
+
+- `overwintering_data_clean.csv`
+- `beeDist.csv`
+
+No GitHub files are used here. The pathogen dataset is already merged with season and queen mass, so the workflow starts from that cleaned file. The fall spatial file is used for the hibernaculum structure and geometry/network analyses.
+
+## Data notes
+
+- `overwintering_data_clean.csv` is in long format, with one row per queen-pathogen combination.
+- `beeDist.csv` is a fall-only spatial dataset.
+- The spatial dataset includes a `weight_g` column, but the analyses below do **not** use that field; the season/pathogen models use the mass column already stored in `overwintering_data_clean.csv`.
+- The fall/spring designation already appears in the cleaned pathogen file, so no GitHub lookup or separate season recoding is needed.
+
+```{r setup}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(broom)
+library(knitr)
+library(MASS)
+library(tibble)
+library(scales)
+
+theme_set(theme_bw(base_size = 12))
+options(dplyr.summarise.inform = FALSE)
+```
+
+```{r import-data}
+pathogen_df <- read_csv("data/overwintering_data_clean.csv", show_col_types = FALSE) %>%
+  rename(
+    sample_id = ID,
+    season = Season,
+    pathogen = pathogen,
+    load = load,
+    weight_g = `Bee_Mass_Est_g.`
+  ) %>%
+  mutate(
+    season = factor(season, levels = c("Fall", "Spring")),
+    positive = replace_na(load, 0) > 0,
+    log10_load = if_else(load > 0, log10(load), NA_real_),
+    log10_load_plus1 = log10(replace_na(load, 0) + 1)
+  ) %>%
+  dplyr::select(sample_id, season, pathogen, load, weight_g, positive, log10_load, log10_load_plus1, time)
+
+weight_df <- pathogen_df %>%
+  distinct(sample_id, season, weight_g)
+
+fall_holes <- read_csv("data/beeDist.csv", show_col_types = FALSE) %>%
+  rename(
+    hole = Hole,
+    nest_id = ID,
+    lab_id = LabID,
+    surface_distance_cm = distance_from_hole_on_surface_cm,
+    nearest_neighbor_cm = nearest_neighbor
+  ) %>%
+  mutate(
+    hole = factor(hole),
+    euclidean_cm = sqrt(depth_cm^2 + surface_distance_cm^2)
+  )
+
+exact_ci <- function(x, n) {
+  bt <- binom.test(x, n)
+  tibble(ci_low = bt$conf.int[1], ci_high = bt$conf.int[2])
+}
+```
+
+```{r quick-data-check}
+data_overview <- tibble(
+  dataset = c("Merged pathogen file", "Merged pathogen file", "Merged pathogen file", "Fall spatial file", "Fall spatial file"),
+  metric = c("Rows", "Unique queens", "Unique pathogens", "Rows", "Occupied holes"),
+  value = c(nrow(pathogen_df), n_distinct(pathogen_df$sample_id), n_distinct(pathogen_df$pathogen), nrow(fall_holes), n_distinct(fall_holes$hole))
+)
+
+data_overview %>% kable()
+```
+
+## 1. Bee mass by season
+
+This reproduces the season-level mass comparison using one mass value per queen.
+
+```{r weight-analysis, fig.width=6.8, fig.height=4.5}
+weight_summary <- weight_df %>%
+  group_by(season) %>%
+  summarise(
+    n = sum(!is.na(weight_g)),
+    mean_g = mean(weight_g, na.rm = TRUE),
+    sd_g = sd(weight_g, na.rm = TRUE),
+    median_g = median(weight_g, na.rm = TRUE),
+    min_g = min(weight_g, na.rm = TRUE),
+    max_g = max(weight_g, na.rm = TRUE)
+  )
+
+weight_welch <- t.test(weight_g ~ season, data = weight_df)
+weight_wilcox <- wilcox.test(weight_g ~ season, data = weight_df, exact = FALSE)
+
+weight_summary %>% kable(digits = 3)
+
+tibble(
+  comparison = "Fall vs Spring mass",
+  test = c("Welch t-test", "Wilcoxon rank-sum"),
+  statistic = c(unname(weight_welch$statistic), unname(weight_wilcox$statistic)),
+  p_value = c(weight_welch$p.value, weight_wilcox$p.value)
+) %>% kable(digits = 3)
+
+ggplot(weight_df, aes(season, weight_g, fill = season)) +
+  geom_boxplot(width = 0.6, alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.08, height = 0, size = 2, alpha = 0.8) +
+  scale_fill_manual(values = c("Fall" = "#D4A017", "Spring" = "#4C9A2A")) +
+  labs(x = NULL, y = "Bee mass (g)", title = "Bee mass by season") +
+  theme(legend.position = "none")
+```
+
+## 2. Pathogen prevalence by season
+
+Prevalence is summarized as the fraction of queens with non-zero load for each pathogen within each season. Exact binomial confidence intervals are shown, and season contrasts are tested with Fisher's exact tests.
+
+```{r prevalence-analysis, fig.width=7.2, fig.height=4.8}
+prevalence_summary <- pathogen_df %>%
+  group_by(pathogen, season) %>%
+  summarise(
+    positive_n = sum(positive),
+    total_n = n(),
+    prevalence = positive_n / total_n,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(ci = list(exact_ci(positive_n, total_n))) %>%
+  unnest_wider(ci) %>%
+  ungroup()
+
+prevalence_tests <- pathogen_df %>%
+  group_by(pathogen) %>%
+  group_modify(~{
+    tab <- table(.x$season, .x$positive)
+    ft <- fisher.test(tab)
+    tibble(
+      fall_positive = sum(.x$positive[.x$season == "Fall"]),
+      fall_n = sum(.x$season == "Fall"),
+      spring_positive = sum(.x$positive[.x$season == "Spring"]),
+      spring_n = sum(.x$season == "Spring"),
+      odds_ratio = unname(ft$estimate),
+      fisher_p = ft$p.value
+    )
+  }) %>%
+  ungroup()
+
+prevalence_summary %>% kable(digits = 3)
+prevalence_tests %>% kable(digits = 3)
+
+ggplot(prevalence_summary, aes(pathogen, prevalence, color = season)) +
+  geom_point(position = position_dodge(width = 0.3), size = 3) +
+  geom_errorbar(
+    aes(ymin = ci_low, ymax = ci_high),
+    position = position_dodge(width = 0.3),
+    width = 0.12,
+    linewidth = 0.5
+  ) +
+  scale_color_manual(values = c("Fall" = "#D4A017", "Spring" = "#4C9A2A")) +
+  coord_cartesian(ylim = c(0, 1.05)) +
+  labs(
+    x = NULL,
+    y = "Prevalence",
+    title = "Pathogen prevalence by season (95% exact CI)"
+  ) +
+  theme(legend.title = element_blank())
+```
+
+## 3. Positive-only pathogen loads
+
+These analyses use only samples with non-zero load and compare seasons on the log10 scale. Both Welch tests and Wilcoxon rank-sum tests are reported. DWV remains sparse, so that comparison is mostly descriptive.
+
+```{r load-analysis, fig.width=10.5, fig.height=4.6}
+positive_load_summary <- pathogen_df %>%
+  filter(positive) %>%
+  group_by(pathogen, season) %>%
+  summarise(
+    n_positive = n(),
+    mean_log10 = mean(log10_load, na.rm = TRUE),
+    median_log10 = median(log10_load, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+load_tests <- pathogen_df %>%
+  filter(positive) %>%
+  group_by(pathogen) %>%
+  group_modify(~{
+    fall_vals <- .x %>% filter(season == "Fall") %>% pull(log10_load) %>% na.omit()
+    spring_vals <- .x %>% filter(season == "Spring") %>% pull(log10_load) %>% na.omit()
+
+    welch_t <- if (length(fall_vals) > 1 && length(spring_vals) > 1) {
+      unname(t.test(fall_vals, spring_vals)$statistic)
+    } else {
+      NA_real_
+    }
+
+    welch_p <- if (length(fall_vals) > 1 && length(spring_vals) > 1) {
+      t.test(fall_vals, spring_vals)$p.value
+    } else {
+      NA_real_
+    }
+
+    wilcoxon_u <- if (length(fall_vals) > 0 && length(spring_vals) > 0) {
+      unname(wilcox.test(fall_vals, spring_vals, exact = FALSE)$statistic)
+    } else {
+      NA_real_
+    }
+
+    wilcoxon_p <- if (length(fall_vals) > 0 && length(spring_vals) > 0) {
+      wilcox.test(fall_vals, spring_vals, exact = FALSE)$p.value
+    } else {
+      NA_real_
+    }
+
+    tibble(
+      n_fall_positive = length(fall_vals),
+      n_spring_positive = length(spring_vals),
+      welch_t = welch_t,
+      welch_p = welch_p,
+      wilcoxon_u = wilcoxon_u,
+      wilcoxon_p = wilcoxon_p
+    )
+  }) %>%
+  ungroup()
+
+positive_load_summary %>% kable(digits = 3)
+load_tests %>% kable(digits = 3)
+
+ggplot(pathogen_df %>% filter(positive), aes(season, log10_load, fill = season)) +
+  geom_boxplot(width = 0.6, alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.08, height = 0, size = 1.8, alpha = 0.75) +
+  scale_fill_manual(values = c("Fall" = "#D4A017", "Spring" = "#4C9A2A")) +
+  facet_wrap(~ pathogen, scales = "free_y") +
+  labs(x = NULL, y = "log10(load)", title = "Positive-only pathogen loads by season") +
+  theme(legend.position = "none")
+```
+
+## 4. Positive-only load models with bee mass as a covariate
+
+These models ask whether season still explains variation in pathogen load after accounting for queen mass. Because DWV has so few positive cases, the positive-only models are restricted to BQCV and Nosema.
+
+```{r weight-covariate-models, fig.width=9.6, fig.height=4.4}
+positive_load_models <- pathogen_df %>%
+  filter(pathogen %in% c("BQCV", "Nosema"), positive) %>%
+  group_by(pathogen) %>%
+  group_modify(~{
+    fit <- lm(log10_load ~ season + weight_g, data = .x)
+    broom::tidy(fit) %>%
+      mutate(
+        n = nrow(.x),
+        r_squared = summary(fit)$r.squared
+      )
+  }) %>%
+  ungroup()
+
+positive_load_models %>% kable(digits = 3)
+
+ggplot(
+  pathogen_df %>% filter(pathogen %in% c("BQCV", "Nosema"), positive),
+  aes(weight_g, log10_load, color = season)
+) +
+  geom_point(size = 2.2, alpha = 0.85) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7) +
+  scale_color_manual(values = c("Fall" = "#D4A017", "Spring" = "#4C9A2A")) +
+  facet_wrap(~ pathogen, scales = "free_y") +
+  labs(
+    x = "Bee mass (g)",
+    y = "log10(load)",
+    title = "Positive-only load versus bee mass"
+  ) +
+  theme(legend.title = element_blank())
+```
+
+## 5. Exploratory weight difference by infection status
+
+This section compares queen mass between infected and uninfected bees for each pathogen. Some negative groups are small, so this is best treated as exploratory.
+
+```{r weight-by-infection-status}
+weight_by_infection <- pathogen_df %>%
+  group_by(pathogen) %>%
+  group_modify(~{
+    pos_w <- .x %>% filter(positive) %>% pull(weight_g) %>% na.omit()
+    neg_w <- .x %>% filter(!positive) %>% pull(weight_g) %>% na.omit()
+
+    welch_t <- if (length(pos_w) > 1 && length(neg_w) > 1) {
+      unname(t.test(pos_w, neg_w)$statistic)
+    } else {
+      NA_real_
+    }
+
+    welch_p <- if (length(pos_w) > 1 && length(neg_w) > 1) {
+      t.test(pos_w, neg_w)$p.value
+    } else {
+      NA_real_
+    }
+
+    wilcox_u <- if (length(pos_w) > 1 && length(neg_w) > 1) {
+      unname(wilcox.test(pos_w, neg_w, exact = FALSE)$statistic)
+    } else {
+      NA_real_
+    }
+
+    wilcox_p <- if (length(pos_w) > 1 && length(neg_w) > 1) {
+      wilcox.test(pos_w, neg_w, exact = FALSE)$p.value
+    } else {
+      NA_real_
+    }
+
+    tibble(
+      n_positive = length(pos_w),
+      n_negative = length(neg_w),
+      mean_weight_positive_g = mean(pos_w),
+      mean_weight_negative_g = mean(neg_w),
+      welch_t = welch_t,
+      welch_p = welch_p,
+      wilcoxon_u = wilcox_u,
+      wilcoxon_p = wilcox_p
+    )
+  }) %>%
+  ungroup()
+
+weight_by_infection %>% kable(digits = 3)
+```
+
+## 6. Fall-only hibernaculum structure
+
+Spring queens were collected with tents, so the spatial analyses are restricted to the fall spatial dataset.
+
+```{r fall-spatial-analysis, fig.width=6.8, fig.height=4.4}
+hole_occupancy <- fall_holes %>%
+  count(hole, name = "queens_in_hole")
+
+fall_spatial_summary <- tibble(
+  metric = c(
+    "Queens in spatial dataset",
+    "Occupied holes",
+    "Mean queens per occupied hole",
+    "Maximum queens in one hole",
+    "Mean depth (cm)",
+    "Median depth (cm)",
+    "Mean surface distance (cm)",
+    "Nearest-neighbor observations"
+  ),
+  value = c(
+    nrow(fall_holes),
+    n_distinct(fall_holes$hole),
+    mean(hole_occupancy$queens_in_hole),
+    max(hole_occupancy$queens_in_hole),
+    mean(fall_holes$depth_cm, na.rm = TRUE),
+    median(fall_holes$depth_cm, na.rm = TRUE),
+    mean(fall_holes$surface_distance_cm, na.rm = TRUE),
+    sum(!is.na(fall_holes$nearest_neighbor_cm))
+  )
+)
+
+fall_spatial_correlations <- tibble(
+  comparison = c(
+    "Depth vs surface distance",
+    "Depth vs nearest-neighbor distance",
+    "Surface distance vs nearest-neighbor distance"
+  ),
+  rho = c(
+    cor(fall_holes$depth_cm, fall_holes$surface_distance_cm, method = "spearman", use = "complete.obs"),
+    cor(fall_holes$depth_cm, fall_holes$nearest_neighbor_cm, method = "spearman", use = "complete.obs"),
+    cor(fall_holes$surface_distance_cm, fall_holes$nearest_neighbor_cm, method = "spearman", use = "complete.obs")
+  ),
+  p_value = c(
+    cor.test(fall_holes$depth_cm, fall_holes$surface_distance_cm, method = "spearman", exact = FALSE)$p.value,
+    cor.test(fall_holes$depth_cm, fall_holes$nearest_neighbor_cm, method = "spearman", exact = FALSE)$p.value,
+    cor.test(fall_holes$surface_distance_cm, fall_holes$nearest_neighbor_cm, method = "spearman", exact = FALSE)$p.value
+  )
+)
+
+fall_spatial_summary %>% kable(digits = 3)
+hole_occupancy %>% kable()
+fall_spatial_correlations %>% kable(digits = 3)
+
+ggplot(fall_holes, aes(depth_cm)) +
+  geom_histogram(bins = 7, fill = "#4C78A8", color = "white") +
+  labs(
+    x = "Depth under soil (cm)",
+    y = "Frequency",
+    title = "Fall hibernaculum depth distribution"
+  )
+```
+
+```{r fall-spatial-figures-2, fig.width=10, fig.height=4.3}
+ggplot(hole_occupancy, aes(hole, queens_in_hole)) +
+  geom_col(fill = "#4C78A8") +
+  labs(
+    x = "Hole",
+    y = "Queens recovered",
+    title = "Queens recovered per occupied fall hole"
+  )
+
+ggplot(fall_holes, aes(surface_distance_cm, depth_cm)) +
+  geom_point(size = 2.3, color = "#4C78A8") +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.6) +
+  labs(
+    x = "Distance from surface hole (cm)",
+    y = "Depth (cm)",
+    title = "Depth vs surface distance"
+  )
+
+ggplot(
+  fall_holes %>% filter(!is.na(nearest_neighbor_cm)),
+  aes(nearest_neighbor_cm, depth_cm)
+) +
+  geom_point(size = 2.3, color = "#4C78A8") +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth = 0.6) +
+  labs(
+    x = "Nearest-neighbor distance (cm)",
+    y = "Depth (cm)",
+    title = "Depth vs nearest-neighbor distance"
+  )
+```
+
+## 7. Multivariate separation of Fall and Spring queens
+
+This reproduces the follow-up multivariate analysis using one row per queen and four predictors:
+
+- queen mass
+- `log10(BQCV + 1)`
+- `log10(DWV + 1)`
+- `log10(Nosema + 1)`
+
+The `+1` transformation keeps zero-load queens in the ordination and classification steps.
+
+```{r multivariate-data}
+multivar_df <- pathogen_df %>%
+  mutate(load = replace_na(load, 0)) %>%
+  dplyr::select(sample_id, season, pathogen, load, weight_g) %>%
+  pivot_wider(names_from = pathogen, values_from = load) %>%
+  mutate(
+    log10_BQCV = log10(BQCV + 1),
+    log10_DWV = log10(DWV + 1),
+    log10_Nosema = log10(Nosema + 1)
+  ) %>%
+  dplyr::select(sample_id, season, weight_g, log10_BQCV, log10_DWV, log10_Nosema) %>%
+  drop_na()
+
+multivariate_summary <- multivar_df %>%
+  group_by(season) %>%
+  summarise(
+    n = n(),
+    mean_weight_g = mean(weight_g),
+    mean_log10_BQCV = mean(log10_BQCV),
+    mean_log10_DWV = mean(log10_DWV),
+    mean_log10_Nosema = mean(log10_Nosema)
+  )
+
+multivariate_summary %>% kable(digits = 3)
+```
+
+### 7.1 PCA ordination
+
+```{r pca-analysis, fig.width=7.8, fig.height=6.4}
+pca_fit <- prcomp(
+  multivar_df %>% dplyr::select(weight_g, log10_BQCV, log10_DWV, log10_Nosema),
+  center = TRUE,
+  scale. = TRUE
+)
+
+scores <- as_tibble(pca_fit$x[, 1:2]) %>%
+  bind_cols(multivar_df %>% dplyr::select(sample_id, season))
+
+loadings <- as.data.frame(pca_fit$rotation[, 1:2]) %>%
+  rownames_to_column("variable")
+
+var_explained <- (pca_fit$sdev^2) / sum(pca_fit$sdev^2)
+arrow_scale <- 1.8
+
+loadings_plot <- loadings %>%
+  mutate(
+    PC1 = PC1 * arrow_scale,
+    PC2 = PC2 * arrow_scale
+  )
+
+season_centroids <- scores %>%
+  group_by(season) %>%
+  summarise(mean_PC1 = mean(PC1), mean_PC2 = mean(PC2))
+
+loadings %>% kable(digits = 3)
+season_centroids %>% kable(digits = 3)
+
+ggplot(scores, aes(PC1, PC2, color = season)) +
+  stat_ellipse(level = 0.68, linewidth = 0.7, alpha = 0.6, show.legend = FALSE) +
+  geom_point(size = 2.8, alpha = 0.9) +
+  geom_segment(
+    data = loadings_plot,
+    aes(x = 0, y = 0, xend = PC1, yend = PC2),
+    inherit.aes = FALSE,
+    arrow = arrow(length = grid::unit(0.18, "cm")),
+    linewidth = 0.7,
+    color = "gray30"
+  ) +
+  geom_text(
+    data = loadings_plot,
+    aes(x = PC1, y = PC2, label = variable),
+    inherit.aes = FALSE,
+    size = 3.6,
+    color = "gray20",
+    nudge_x = 0.05,
+    nudge_y = 0.05
+  ) +
+  scale_color_manual(values = c("Fall" = "#D4A017", "Spring" = "#4C9A2A")) +
+  labs(
+    title = "PCA of queen mass and pathogen loads",
+    x = paste0("PC1 (", round(100 * var_explained[1], 1), "% variance)"),
+    y = paste0("PC2 (", round(100 * var_explained[2], 1), "% variance)"),
+    color = NULL
+  )
+```
+
+### 7.2 Exploratory season prediction with LDA
+```{r lda-analysis}
+lda_fit <- MASS::lda(
+  season ~ weight_g + log10_BQCV + log10_DWV + log10_Nosema,
+  data = multivar_df
+)
+
+lda_cv <- MASS::lda(
+  season ~ weight_g + log10_BQCV + log10_DWV + log10_Nosema,
+  data = multivar_df,
+  CV = TRUE
+)
+
+conf_mat <- table(
+  Observed = multivar_df$season,
+  Predicted = lda_cv$class
+)
+
+accuracy <- mean(lda_cv$class == multivar_df$season)
+
+lda_coefficients <- as.data.frame(lda_fit$scaling) %>%
+  tibble::rownames_to_column("term")
+
+lda_coefficients %>% knitr::kable(digits = 3)
+
+as.data.frame.matrix(conf_mat) %>%
+  tibble::rownames_to_column("Observed") %>%
+  knitr::kable()
+
+tibble::tibble(
+  metric = "Leave-one-out cross-validated accuracy",
+  value = accuracy
+) %>%
+  knitr::kable(digits = 3)
+```
+
+## 8. Fall subsurface geometry network diagram
+
+This reproduces the network-style geometry figure for fall bees. Each queen is linked to its focal surface hole using the right-triangle interpretation:
+
+- horizontal leg = `surface_distance_cm`
+- vertical leg = `depth_cm`
+- edge length = `sqrt(depth_cm^2 + surface_distance_cm^2)`
+
+```{r fall-geometry-summary}
+fall_distance_summary <- fall_holes %>%
+  summarise(
+    n_queens = n(),
+    n_holes = n_distinct(hole),
+    mean_depth_cm = mean(depth_cm, na.rm = TRUE),
+    mean_surface_distance_cm = mean(surface_distance_cm, na.rm = TRUE),
+    mean_euclidean_cm = mean(euclidean_cm, na.rm = TRUE),
+    median_euclidean_cm = median(euclidean_cm, na.rm = TRUE),
+    max_euclidean_cm = max(euclidean_cm, na.rm = TRUE)
+  )
+
+by_hole_distance <- fall_holes %>%
+  group_by(hole) %>%
+  summarise(
+    queens_in_hole = n(),
+    mean_depth_cm = mean(depth_cm),
+    mean_surface_distance_cm = mean(surface_distance_cm),
+    mean_euclidean_cm = mean(euclidean_cm)
+  )
+
+fall_distance_summary %>% kable(digits = 3)
+by_hole_distance %>% kable(digits = 3)
+```
+
+```{r fall-geometry-network, fig.width=11, fig.height=7.6}
+hole_nodes <- fall_holes %>%
+  distinct(hole) %>%
+  mutate(x = 0, y = 0)
+
+ggplot(fall_holes) +
+  geom_segment(
+    aes(
+      x = 0,
+      y = 0,
+      xend = surface_distance_cm,
+      yend = -depth_cm,
+      linewidth = euclidean_cm
+    ),
+    color = "gray35",
+    alpha = 0.8
+  ) +
+  geom_point(
+    data = hole_nodes,
+    aes(x = x, y = y),
+    inherit.aes = FALSE,
+    size = 3.6,
+    color = "black"
+  ) +
+  geom_point(
+    aes(x = surface_distance_cm, y = -depth_cm),
+    size = 2.8,
+    color = "#2C7FB8"
+  ) +
+  geom_text(
+    aes(x = surface_distance_cm, y = -depth_cm, label = lab_id),
+    nudge_y = -0.45,
+    size = 2.8,
+    check_overlap = TRUE
+  ) +
+  scale_linewidth_continuous(range = c(0.4, 2.2)) +
+  coord_equal() +
+  facet_wrap(~ hole, scales = "fixed") +
+  labs(
+    title = "Fall queen subsurface geometry by focal hole",
+    subtitle = "Each edge runs from the focal surface hole (black node) to an excavated queen; edge width encodes Euclidean distance.",
+    x = "Horizontal distance from focal hole (cm)",
+    y = "Depth below surface (cm)",
+    linewidth = "Euclidean\ndistance (cm)"
+  )
+```
+
+## 9. Reproducibility
+
+```{r session-info}
+sessionInfo()
+```
